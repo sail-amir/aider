@@ -270,10 +270,30 @@ def main(
     if num_tests > 0:
         test_dnames = test_dnames[:num_tests]
 
-    # Don't give up when benchmarking
-    LONG_TIMEOUT = 24 * 60 * 60
+    # Bound retries so a persistently-failing gateway request (e.g. a recurring
+    # upstream 500) fails fast and gets recorded as an error, instead of
+    # retrying for 24h and hanging the whole run. 90s still rides out brief
+    # transient rate limits.
+    LONG_TIMEOUT = 90
     sendchat.RETRY_TIMEOUT = LONG_TIMEOUT
     base_coder.RETRY_TIMEOUT = LONG_TIMEOUT
+
+    # benchmark.py builds models.Model() directly, bypassing the CLI's
+    # register_*() calls -- so local .aider.model.settings.yml (edit_format,
+    # extra_params like reasoning_effort) and .aider.model.metadata.json
+    # (context window, pricing) are otherwise ignored. Register them here, once,
+    # before any test thread constructs a model.
+    repo_root = repo.working_tree_dir
+    settings_loaded = models.register_models(
+        [os.path.join(repo_root, ".aider.model.settings.yml")]
+    )
+    metadata_loaded = models.register_litellm_models(
+        [os.path.join(repo_root, ".aider.model.metadata.json")]
+    )
+    if settings_loaded:
+        print("Loaded model settings:", settings_loaded)
+    if metadata_loaded:
+        print("Loaded model metadata:", metadata_loaded)
 
     if threads == 1:
         all_results = []
@@ -645,6 +665,20 @@ def run_test_real(
         if not main_model.extra_params:
             main_model.extra_params = {}
         main_model.extra_params["num_ctx"] = num_ctx
+
+    # Per-run override of thinking/reasoning effort without editing the settings
+    # file: AIDER_REASONING_EFFORT=high|medium|low (set the level) or none|off
+    # (strip it, i.e. non-thinking baseline). Has no effect on models whose
+    # thinking is enabled by the alias (e.g. claude-opus-4-6-thinking).
+    effort = os.environ.get("AIDER_REASONING_EFFORT")
+    if effort:
+        if not main_model.extra_params:
+            main_model.extra_params = {}
+        if effort.lower() in ("none", "off", "0", "false"):
+            main_model.extra_params.pop("reasoning_effort", None)
+        else:
+            main_model.extra_params["reasoning_effort"] = effort
+
     edit_format = edit_format or main_model.edit_format
 
     dump(main_model)

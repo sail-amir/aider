@@ -1,0 +1,41 @@
+# Local aider model settings for the refactor benchmark.
+#
+# Registered explicitly by benchmark/benchmark.py (the benchmark builds
+# models.Model() directly and bypasses aider's CLI register_*() calls, so this
+# file is otherwise ignored). Each entry's `extra_params` are passed straight
+# through to litellm.completion().
+#
+# Thinking/reasoning:
+#   * glm-5.1 / gpt-5.5 / deepseek-v3.2 enable thinking via the request param
+#     `reasoning_effort` (verified: adds reasoning_tokens on the gateway).
+#     Default here is "high". Override per run with env AIDER_REASONING_EFFORT
+#     (high|medium|low|off) -- see run_refactor_bench.sh.
+#   * claude-opus-4-6-thinking enables thinking via the model ALIAS itself, not
+#     reasoning_effort, so it has no extra_params. It emits a <thinking> block
+#     inside the response content. (claude-opus-4-7 has no thinking variant on
+#     this gateway; claude-opus-4-8 has no channel.)
+#
+# `edit_format` here is only a fallback -- the wrapper scripts always pass
+# --edit-format explicitly.
+
+- name: openai/glm-5.1
+  edit_format: whole
+  use_temperature: true
+  extra_params:
+    reasoning_effort: high
+
+- name: openai/gpt-5.5
+  edit_format: whole
+  use_temperature: true
+  extra_params:
+    reasoning_effort: high
+
+- name: openai/deepseek-v3.2
+  edit_format: whole
+  use_temperature: true
+  extra_params:
+    reasoning_effort: high
+
+- name: openai/claude-opus-4-6-thinking
+  edit_format: whole
+  use_temperature: true
