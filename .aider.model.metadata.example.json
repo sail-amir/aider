@@ -1,0 +1,12 @@
+{
+  "_README": "TEMPLATE — not loaded by the benchmark. Copy the entry below into the real .aider.model.metadata.json, rename the key to your served model id (kept identical to the name in .aider.model.settings.yml, prefixed with openai/), and fill in the real token limits from the model's docs. The matching settings entry (with api_base/api_key/timeout) is the commented TEMPLATE block in .aider.model.settings.yml.",
+  "openai/LOCAL_MODEL_NAME": {
+    "max_tokens": 8192,
+    "max_input_tokens": 32768,
+    "max_output_tokens": 8192,
+    "input_cost_per_token": 0,
+    "output_cost_per_token": 0,
+    "litellm_provider": "openai",
+    "mode": "chat"
+  }
+}

@@ -44,3 +44,33 @@
   use_temperature: true
   extra_params:
     timeout: 300
+
+# ----------------------------------------------------------------------------
+# TEMPLATE: a local / other-endpoint OpenAI-compatible model.
+# Routes ONLY this model to a different endpoint via per-model api_base/api_key
+# (overrides OPENAI_API_BASE/OPENAI_API_KEY from .benchmark.env, just for it).
+# Uncomment, then fill in the 3 PLACEHOLDERS (name, api_base, api_key).
+# Run it with:  ./run_refactor_bench.sh LOCAL_MODEL_NAME myrun --edit-format diff --new
+#   (the wrapper prepends "openai/", matching the name below)
+#
+# - name: openai/LOCAL_MODEL_NAME          # served id at your endpoint (e.g. my-llama-3.1-70b)
+#   edit_format: whole                     # fallback only; wrappers pass --edit-format
+#   use_temperature: true
+#   extra_params:
+#     api_base: "http://LOCAL_HOST:PORT/v1"  # your endpoint, include the trailing /v1
+#     api_key: "EMPTY"                       # vLLM/llama.cpp/LM Studio often accept any/empty key
+#     timeout: 300
+#     # reasoning_effort: high               # ONLY if this model supports it; remove otherwise
+#
+# Also add a matching entry to .aider.model.metadata.json (JSON has no comments,
+# so paste this and keep the key identical to the name above):
+#   "openai/LOCAL_MODEL_NAME": {
+#     "max_tokens": 8192,
+#     "max_input_tokens": 32768,
+#     "max_output_tokens": 8192,
+#     "input_cost_per_token": 0,
+#     "output_cost_per_token": 0,
+#     "litellm_provider": "openai",
+#     "mode": "chat"
+#   }
+# ----------------------------------------------------------------------------
