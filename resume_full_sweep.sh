@@ -61,8 +61,9 @@ prep_cell() {
 
   for m in $MODELS; do
     case "$m" in */*) litellm_model="$m" ;; *) litellm_model="openai/$m" ;; esac
+    safe_m="${m//\//-}"   # sanitize provider slash (anthropic/x -> anthropic-x) for run-dir names
     for f in $FORMATS; do
-      run_name="full-$m-$f"
+      run_name="full-$safe_m-$f"
       prep_cell "$run_name"
       echo ""
       echo "######## MODEL: $m / $f  ($CELL_FLAG${CELL_DONE:+, $CELL_DONE/89 already done}) ########"
@@ -74,7 +75,7 @@ prep_cell() {
 
     echo ""
     echo "==================== SUMMARY: $m ===================="
-    sdirs=(tmp.benchmarks/*--"full-$m"-*)
+    sdirs=(tmp.benchmarks/*--"full-$safe_m"-*)
     if [[ -e "${sdirs[0]}" ]]; then .venv/bin/python summarize_runs.py "${sdirs[@]}" || true; fi
   done
 
