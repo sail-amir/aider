@@ -729,7 +729,7 @@ def run_test_real(
         if not no_aider:
             pat = r"^[+]? *[#].* [.][.][.] "
             # Count the number of lines that match pat in response
-            dump(response)
+            # dump(response)  # silenced: floods the log with the full model edit
             lazy_comments += len(re.findall(pat, response, re.MULTILINE))
             dump(lazy_comments)
 

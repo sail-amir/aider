@@ -23,19 +23,24 @@
   use_temperature: true
   extra_params:
     reasoning_effort: high
+    timeout: 300
 
 - name: openai/gpt-5.5
   edit_format: whole
   use_temperature: true
   extra_params:
     reasoning_effort: high
+    timeout: 300
 
 - name: openai/deepseek-v3.2
   edit_format: whole
   use_temperature: true
   extra_params:
     reasoning_effort: high
+    timeout: 300
 
 - name: openai/claude-opus-4-6-thinking
   edit_format: whole
   use_temperature: true
+  extra_params:
+    timeout: 300

@@ -1,86 +1,83 @@
 #!/usr/bin/env bash
 #
-# Resume the interrupted full sweep WITHOUT redoing finished work:
-#   * glm-5.1 / diff  -> --cont the prior 87/89 run (re-runs only the 2 that hung)
-#   * everything else -> fresh (those cells never produced a run dir)
-# Then print a per-model comparison table.
+# Stop/resume-safe full sweep: runs FORMATS x MODELS over all 89 tasks, but
+# every cell auto-resumes. For each (model, format):
+#   * if a prior run dir exists -> --cont (skips tasks that already have a
+#     .aider.results.json, including error results; re-runs only the missing)
+#   * else -> --new
+# So you can Ctrl-C / kill at any point and just re-run this script: it picks up
+# exactly where it left off on every cell. Prints a per-model comparison table.
 #
 # Usage:
-#   ./resume_full_sweep.sh                # foreground, tees to tmp.benchmarks/full_run.log
-#   nohup ./resume_full_sweep.sh &        # detached; tail -f tmp.benchmarks/full_run.log
+#   ./resume_full_sweep.sh                 # foreground, tees to tmp.benchmarks/full_run.log
+#   nohup ./resume_full_sweep.sh &         # detached; tail -f tmp.benchmarks/full_run.log
 #
 # Env knobs:
-#   THREADS  16     parallel requests per cell
-#   TRIES    1      pass@1 / leaderboard-style
+#   MODELS   "glm-5.1 gpt-5.5 deepseek-v3.2 claude-opus-4-6-thinking"
+#   FORMATS  "diff udiff whole"
+#   THREADS  16
+#   TRIES    1
 #
 # Notes:
-#   * Relies on benchmark.py's LONG_TIMEOUT (now 90s) so the 2 hung glm/diff
-#     tasks fail-fast and get recorded as errors instead of retrying for hours.
-#   * The most-complete prior glm-5.1/diff run is auto-detected (most results),
-#     restored into tmp.benchmarks/ for --cont; any lesser partial is set aside
-#     under tmp.benchmarks/OLD/.
+#   * Thinking + per-request timeout (300s) come from .aider.model.settings.yml.
+#   * If a cell has several leftover dirs, the one with the most completed
+#     results is kept (restored into tmp.benchmarks/) and the rest are moved to
+#     tmp.benchmarks/OLD/ so --cont is unambiguous and summaries don't double-count.
 set -uo pipefail
 cd "$(dirname "$0")"
 # shellcheck disable=SC1091
 source .benchmark.env
 
+MODELS="${MODELS:-glm-5.1 gpt-5.5 deepseek-v3.2 claude-opus-4-6-thinking}"
+FORMATS="${FORMATS:-diff udiff whole}"
 THREADS="${THREADS:-16}"
 TRIES="${TRIES:-1}"
 LOG="tmp.benchmarks/full_run.log"
 mkdir -p tmp.benchmarks tmp.benchmarks/OLD
 
-{
-  echo "=== resume sweep started: $(date) ===  THREADS=$THREADS TRIES=$TRIES"
-
-  # ---- restore the most-complete glm-5.1/diff run so --cont can resume it ----
-  for d in tmp.benchmarks/*--full-glm-5.1-diff; do
-    if [[ -d "$d" ]]; then mv "$d" tmp.benchmarks/OLD/ && echo "set aside: $(basename "$d")"; fi
+# Consolidate any leftover dirs for a run name and decide --cont vs --new.
+# Sets globals: CELL_FLAG ("--cont"|"--new"), CELL_DONE (count in the kept dir).
+prep_cell() {
+  local run_name="$1" best="" bestn=-1 d n base
+  shopt -s nullglob
+  for d in tmp.benchmarks/*--"$run_name" tmp.benchmarks/OLD/*--"$run_name"; do
+    [[ -d "$d" ]] || continue
+    n=$(find "$d" -name '.aider.results.json' 2>/dev/null | wc -l)
+    if (( n > bestn )); then bestn="$n"; best="$d"; fi
   done
-  best=""; bestn=-1
-  for d in tmp.benchmarks/OLD/*--full-glm-5.1-diff; do
-    if [[ -d "$d" ]]; then
-      n=$(find "$d" -name '.aider.results.json' 2>/dev/null | wc -l)
-      if (( n > bestn )); then bestn=$n; best="$d"; fi
-    fi
-  done
-  cont_flag="--new"
+  CELL_FLAG="--new"; CELL_DONE=""
   if [[ -n "$best" ]]; then
-    mv "$best" tmp.benchmarks/ && cont_flag="--cont"
-    echo "restored for --cont: $(basename "$best")  ($bestn/89 done)"
-  else
-    echo "WARN: no prior glm-5.1/diff run found -> starting it fresh"
+    base="$(basename "$best")"
+    # move every matching dir in tmp.benchmarks/ aside, then restore the best one
+    for d in tmp.benchmarks/*--"$run_name"; do [[ -d "$d" ]] && mv "$d" tmp.benchmarks/OLD/ 2>/dev/null; done
+    if [[ -d "tmp.benchmarks/OLD/$base" ]]; then mv "tmp.benchmarks/OLD/$base" tmp.benchmarks/ 2>/dev/null; fi
+    CELL_FLAG="--cont"; CELL_DONE="$bestn"
   fi
+  shopt -u nullglob
+}
 
-  # ---- 1. resume glm-5.1 / diff (reuses done tasks, reruns only the missing) ----
-  echo ""
-  echo "######## glm-5.1 / diff ($cont_flag) ########"
-  .venv/bin/python -u benchmark/benchmark.py full-glm-5.1-diff \
-    --model openai/glm-5.1 --edit-format diff --threads "$THREADS" \
-    --exercises-dir refactor-benchmark "$cont_flag" --tries "$TRIES" \
-    || echo "WARN: glm-5.1/diff exited non-zero"
+{
+  echo "=== resumable sweep started: $(date) ===  MODELS=[$MODELS] FORMATS=[$FORMATS] THREADS=$THREADS TRIES=$TRIES"
 
-  # ---- 2. glm-5.1 remaining formats (fresh) ----
-  echo ""
-  echo "######## glm-5.1 / udiff,whole (fresh) ########"
-  FORMATS="udiff whole" THREADS="$THREADS" ./sweep_edit_formats.sh glm-5.1 full-glm-5.1 --tries "$TRIES" \
-    || echo "WARN: glm-5.1 udiff/whole exited non-zero"
+  for m in $MODELS; do
+    case "$m" in */*) litellm_model="$m" ;; *) litellm_model="openai/$m" ;; esac
+    for f in $FORMATS; do
+      run_name="full-$m-$f"
+      prep_cell "$run_name"
+      echo ""
+      echo "######## MODEL: $m / $f  ($CELL_FLAG${CELL_DONE:+, $CELL_DONE/89 already done}) ########"
+      .venv/bin/python -u benchmark/benchmark.py "$run_name" \
+        --model "$litellm_model" --edit-format "$f" --threads "$THREADS" \
+        --exercises-dir refactor-benchmark "$CELL_FLAG" --tries "$TRIES" \
+        || echo "WARN: $m/$f exited non-zero"
+    done
 
-  # ---- 3. other models, all formats (fresh) ----
-  for m in gpt-5.5 deepseek-v3.2 claude-opus-4-6-thinking; do
     echo ""
-    echo "######## MODEL: $m / diff,udiff,whole (fresh) ########"
-    FORMATS="diff udiff whole" THREADS="$THREADS" ./sweep_edit_formats.sh "$m" "full-$m" --tries "$TRIES" \
-      || echo "WARN: sweep for $m exited non-zero"
+    echo "==================== SUMMARY: $m ===================="
+    sdirs=(tmp.benchmarks/*--"full-$m"-*)
+    if [[ -e "${sdirs[0]}" ]]; then .venv/bin/python summarize_runs.py "${sdirs[@]}" || true; fi
   done
 
-  # ---- final per-model summaries ----
-  echo ""
-  echo "######## FINAL SUMMARIES ########"
-  for m in glm-5.1 gpt-5.5 deepseek-v3.2 claude-opus-4-6-thinking; do
-    echo ""
-    dirs=(tmp.benchmarks/*--"full-$m"-*)
-    if [[ -e "${dirs[0]}" ]]; then .venv/bin/python summarize_runs.py "${dirs[@]}" || true; fi
-  done
   echo ""
   echo "ALL_DONE: $(date)"
 } 2>&1 | tee "$LOG"
