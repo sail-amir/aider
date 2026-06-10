@@ -35,7 +35,7 @@ exec .venv/bin/python distill_pangu.py \
   --model "${PANGU_MODEL:-pangu_auto}" \
   --max-tokens "${PANGU_MAX_TOKENS:-120000}" \
   --timeout "${PANGU_TIMEOUT:-3600}" \
-  --batch-size "${PANGU_BATCH_SIZE:-64}" \
+  --batch-size "${PANGU_BATCH_SIZE:-1}" \
   --max-retries "${PANGU_MAX_RETRIES:-3}" \
   --temperature "${PANGU_TEMPERATURE:-1.0}" \
   --top-p "${PANGU_TOP_P:-0.8}" \
