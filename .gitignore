@@ -19,3 +19,6 @@ aider/_version.py
 # benchmark secrets & output (do not commit)
 .benchmark*.env
 tmp.benchmarks/
+
+# pangu inference endpoint creds (do not commit)
+.pangu*.env

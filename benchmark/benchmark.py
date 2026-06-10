@@ -567,6 +567,50 @@ def get_replayed_content(replay_dname, test_dname):
     return "".join(res)
 
 
+def pangu_distill(question, testdir):
+    """Model call for a pangu model: hand off to run_pangu_distill.sh -> distill_pangu.py.
+
+    Writes a 1-line input JSONL (the prompt as "question"), invokes the wrapper,
+    and returns the model's "content" string. On any failure returns an error
+    sentinel string (starts with "<error:"/"<timeout:") so the caller records it
+    instead of applying garbage.
+    """
+    testdir = Path(testdir)
+    in_path = testdir / ".pangu_in.jsonl"
+    out_path = testdir / ".pangu_out.jsonl"
+    in_path.write_text(
+        json.dumps({"question": question, "testcase": testdir.name}, ensure_ascii=False) + "\n"
+    )
+    if out_path.exists():
+        out_path.unlink()
+
+    repo_root = Path(__file__).resolve().parents[1]
+    script = repo_root / "run_pangu_distill.sh"
+    try:
+        subprocess.run(
+            ["bash", str(script), str(in_path), str(out_path)],
+            cwd=str(repo_root),
+            check=True,
+            timeout=int(os.environ.get("PANGU_WRAPPER_TIMEOUT", "14400")),
+        )
+    except subprocess.TimeoutExpired:
+        return "<timeout: pangu wrapper>"
+    except subprocess.CalledProcessError as e:
+        return f"<error: pangu wrapper exit {e.returncode}>"
+
+    if not out_path.exists():
+        return "<error: pangu produced no output>"
+    lines = [ln for ln in out_path.read_text().splitlines() if ln.strip()]
+    if not lines:
+        return "<error: pangu produced empty output>"
+    try:
+        rec = json.loads(lines[-1])
+    except Exception:
+        return "<error: pangu output not JSON>"
+    content = rec.get("content")
+    return content if isinstance(content, str) else "<error: pangu output missing content>"
+
+
 def run_test(original_dname, testdir, *args, **kwargs):
     try:
         return run_test_real(original_dname, testdir, *args, **kwargs)
@@ -712,6 +756,7 @@ def run_test_real(
 
     dur = 0
     test_outcomes = []
+    is_pangu = "pangu" in (model_name or "").lower()
     for i in range(tries):
         start = time.time()
         if no_aider:
@@ -725,6 +770,30 @@ def run_test_real(
             io.append_chat_history("".join(show))
 
             coder.apply_updates()
+        elif is_pangu:
+            # Build aider's edit-format prompt, but route the model call through
+            # distill_pangu.py (its own endpoint/auth) instead of litellm.
+            coder.cur_messages = coder.cur_messages + [
+                {"role": "user", "content": instructions}
+            ]
+            msgs = coder.format_messages().all_messages()
+            question = "\n\n".join(
+                m["content"]
+                for m in msgs
+                if isinstance(m.get("content"), str) and m["content"].strip()
+            )
+            response = pangu_distill(question, testdir)
+            coder.partial_response_content = response
+            io.append_chat_history(response)
+            if (
+                not response.strip()
+                or response.startswith(
+                    ("<timeout:", "<http_error:", "<client_error:", "<error:", "<empty response")
+                )
+            ):
+                io.num_error_outputs += 1
+            else:
+                coder.apply_updates()
         else:
             response = coder.run(with_message=instructions, preproc=False)
         dur += time.time() - start
