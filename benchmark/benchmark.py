@@ -692,7 +692,10 @@ def run_test_real(
         io,
         fnames=fnames,
         use_git=False,
-        stream=False,
+        # Streaming off by default; set BENCH_STREAM=1 to stream. Helps with
+        # thinking-heavy models / large max_tokens whose long non-streamed
+        # responses can time out or return an empty shell at the proxy.
+        stream=os.environ.get("BENCH_STREAM", "0") == "1",
         verbose=verbose,
         # auto_lint=False,  # disabled for code-in-json experiments
         cache_prompts=True,
